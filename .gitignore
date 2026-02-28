@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+db/ops.sqlite
+db/ops.sqlite-shm
+db/ops.sqlite-wal
+uploads/*
+!uploads/.gitkeep
+exports/*
+!exports/.gitkeep
