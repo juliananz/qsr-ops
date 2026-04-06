@@ -66,3 +66,26 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if tables:
         conn.execute("DROP TABLE IF EXISTS receiving")
         conn.commit()
+
+    # ── Migration 3: rebuild shift_close if it has the old cash-reconciliation schema ──
+    sc_cols = {row[1] for row in conn.execute("PRAGMA table_info(shift_close)")}
+    if sc_cols and "total_sales" in sc_cols:
+        conn.executescript("""
+            DROP TABLE IF EXISTS shift_close;
+            CREATE TABLE shift_close (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                shift_id          INTEGER NOT NULL UNIQUE REFERENCES shifts(id) ON DELETE CASCADE,
+                ventas_pos        REAL    NOT NULL DEFAULT 0,
+                ventas_app        REAL    NOT NULL DEFAULT 0,
+                gastos_efectivo   REAL    NOT NULL DEFAULT 0,
+                ventas_totales    REAL    NOT NULL DEFAULT 0,
+                efectivo_contado  REAL    NOT NULL DEFAULT 0,
+                ventas_tarjeta    REAL    NOT NULL DEFAULT 0,
+                fondo_inicial     REAL    NOT NULL DEFAULT 2000,
+                efectivo_neto     REAL    NOT NULL DEFAULT 0,
+                comprobacion      REAL    NOT NULL DEFAULT 0,
+                diferencia        REAL    NOT NULL DEFAULT 0,
+                notas             TEXT,
+                closed_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        """)

@@ -74,20 +74,23 @@ CREATE TABLE IF NOT EXISTS receiving_log (
 CREATE INDEX IF NOT EXISTS ix_receiving_log_shift ON receiving_log (shift_id);
 
 -- ----------------------------------------------------------
--- shift_close  (POS reconciliation, one row per shift)
+-- shift_close  (cash reconciliation, one row per shift)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS shift_close (
-    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-    shift_id             INTEGER NOT NULL UNIQUE REFERENCES shifts(id) ON DELETE CASCADE,
-    total_sales          REAL    NOT NULL,
-    cash_sales           REAL    NOT NULL,
-    card_sales           REAL    NOT NULL,
-    cxc_sales            REAL    NOT NULL,
-    actual_cash_counted  REAL    NOT NULL,
-    cash_expenses        REAL    NOT NULL,
-    expected_cash        REAL    NOT NULL,
-    discrepancy          REAL    NOT NULL,
-    closed_at            DATETIME DEFAULT CURRENT_TIMESTAMP
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    shift_id          INTEGER NOT NULL UNIQUE REFERENCES shifts(id) ON DELETE CASCADE,
+    ventas_pos        REAL    NOT NULL DEFAULT 0,
+    ventas_app        REAL    NOT NULL DEFAULT 0,
+    gastos_efectivo   REAL    NOT NULL DEFAULT 0,
+    ventas_totales    REAL    NOT NULL DEFAULT 0,
+    efectivo_contado  REAL    NOT NULL DEFAULT 0,
+    ventas_tarjeta    REAL    NOT NULL DEFAULT 0,
+    fondo_inicial     REAL    NOT NULL DEFAULT 2000,
+    efectivo_neto     REAL    NOT NULL DEFAULT 0,
+    comprobacion      REAL    NOT NULL DEFAULT 0,
+    diferencia        REAL    NOT NULL DEFAULT 0,
+    notas             TEXT,
+    closed_at         DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ----------------------------------------------------------

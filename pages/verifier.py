@@ -71,20 +71,20 @@ st.caption(f"Abrió: **{shift['cashier_name']}** · Estado: **{shift['status']}*
 if sc:
     st.markdown("#### 💵 Arqueo de caja")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Ventas totales", f"${sc['total_sales']:,.2f}")
-    c2.metric("Vtas efectivo",  f"${sc['cash_sales']:,.2f}")
-    c3.metric("Vtas tarjeta",   f"${sc['card_sales']:,.2f}")
-    c4.metric("Vtas CxC",       f"${sc['cxc_sales']:,.2f}")
+    c1.metric("Ventas POS",     f"${sc['ventas_pos']:,.2f}")
+    c2.metric("Ventas App",     f"${sc['ventas_app']:,.2f}")
+    c3.metric("Ventas totales", f"${sc['ventas_totales']:,.2f}")
+    c4.metric("Gastos efectivo",f"${sc['gastos_efectivo']:,.2f}")
     c5, c6, c7 = st.columns(3)
-    c5.metric("Efectivo esperado", f"${sc['expected_cash']:,.2f}")
-    c6.metric("Efectivo contado",  f"${sc['actual_cash_counted']:,.2f}")
-    disc = sc["discrepancy"]
+    c5.metric("Efectivo neto",  f"${sc['efectivo_neto']:,.2f}")
+    c6.metric("Comprobación",   f"${sc['comprobacion']:,.2f}")
+    disc = sc["diferencia"]
     if abs(disc) < 1:
         c7.markdown('<div class="alert-ok">✅ Sin diferencia</div>', unsafe_allow_html=True)
     elif disc < 0:
-        c7.markdown(f'<div class="alert-err">🔴 Faltante ${disc:,.2f}</div>', unsafe_allow_html=True)
+        c7.markdown(f'<div class="alert-err">🔴 Faltan ${abs(disc):,.2f}</div>', unsafe_allow_html=True)
     else:
-        c7.markdown(f'<div class="alert-warn">🟡 Sobrante +${disc:,.2f}</div>', unsafe_allow_html=True)
+        c7.markdown(f'<div class="alert-warn">🟡 Sobran ${disc:,.2f}</div>', unsafe_allow_html=True)
 else:
     st.warning("⚠️ Este turno aún no tiene cierre registrado.")
 

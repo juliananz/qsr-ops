@@ -4,6 +4,34 @@ Maps POS product descriptions → product codes → inventory ingredient consump
 """
 
 # ---------------------------------------------------------------------------
+# POS product names used in App Sales and Consumption forms
+# ---------------------------------------------------------------------------
+POS_PRODUCTS: list[str] = [
+    "HAMBURGUESA CON QUESO",
+    "HAMBURGUESA SENCILLA",
+    "HAMBURGUESA CON 2 CARNES",
+    "ASTROBURGUER",
+    "HAMBURGUESA DE POLLO",
+    "ASTROPOLLO",
+    "HOT DOG",
+    "TORTA DE PIERNA",
+    "TORTA TERNERA",
+    "TORNILLOS",
+    "PALOMAS TERNERA",
+    "PALOMAS PIERNA",
+    "ASTROPAPA",
+    "PAPAS FRANCESAS",
+    "1/2 ORDEN PAPAS",
+    "BROWNIE",
+    "EXTRA CARNE",
+    "EXTRA POLLO",
+    "EXTRA AGUACATE",
+    "EXTRA QUESO",
+    "EXTRA PEPINILLOS",
+    "REFRESCO",
+]
+
+# ---------------------------------------------------------------------------
 # A. POS description → product_code / bundle_code
 #    Keys: uppercase, stripped (match df["descripcion"].str.upper().str.strip())
 # ---------------------------------------------------------------------------
@@ -189,8 +217,17 @@ def calculate_theoretical_consumption(shift_id: int, db_conn) -> dict[str, float
         (shift_id,),
     ).fetchall()
     for row in cons_rows:
-        key = INVENTORY_NAME_TO_KEY.get(str(row["product"]))
-        if key:
-            total[key] = total.get(key, 0.0) + float(row["cantidad"])
+        product = str(row["product"])
+        qty = float(row["cantidad"])
+        # Try POS product name mapping first
+        code = PRODUCT_NAME_MAPPING.get(product.upper().strip())
+        if code:
+            for ing, units in INVENTORY_INGREDIENT_MAP.get(code, {}).items():
+                total[ing] = total.get(ing, 0.0) + units * qty
+        else:
+            # Fall back to direct ingredient key (backward compat)
+            key = INVENTORY_NAME_TO_KEY.get(product)
+            if key:
+                total[key] = total.get(key, 0.0) + qty
 
     return total

@@ -13,6 +13,8 @@ from core.models import (
     get_shift,
     get_shift_close,
     get_total_cash_expenses,
+    get_pos_sales_total,
+    get_app_sales_total,
     has_inventory_counts,
     get_inventory_counts,
     get_receiving_log,
@@ -45,12 +47,11 @@ if shift["status"] == "closed":
     st.success("✅ Este turno ya fue cerrado.")
     if sc:
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Ventas totales",    f"${sc['total_sales']:,.2f}")
-        col2.metric("Efectivo esperado", f"${sc['expected_cash']:,.2f}")
-        col3.metric("Efectivo contado",  f"${sc['actual_cash_counted']:,.2f}")
-        disc = sc["discrepancy"]
-        delta_color = "normal" if abs(disc) < 1 else ("inverse" if disc < 0 else "off")
-        col4.metric("Diferencia",        f"${disc:,.2f}", delta_color=delta_color)
+        col1.metric("Ventas totales",  f"${sc['ventas_totales']:,.2f}")
+        col2.metric("Efectivo contado", f"${sc['efectivo_contado']:,.2f}")
+        col3.metric("Comprobación",    f"${sc['comprobacion']:,.2f}")
+        disc = sc["diferencia"]
+        col4.metric("Diferencia",      f"${disc:,.2f}")
     st.stop()
 
 # ── Compute inventory gate flags early (needed for theoretical section too) ──
@@ -260,8 +261,10 @@ else:
 hr()
 
 # =============================================================================
-# SECTION 3 — Cash reconciliation (requires both inventory counts)
+# SECTION 3 — Arqueo de caja (requires both inventory counts)
 # =============================================================================
+st.subheader("💰 Arqueo de Caja")
+
 if not has_apertura or not has_cierre:
     missing = []
     if not has_apertura:
@@ -275,79 +278,89 @@ if not has_apertura or not has_cierre:
     )
     st.stop()
 
-# ── Pre-fill cash expenses from recorded expenses ─────────────────────────────
-auto_expenses = get_total_cash_expenses(shift_id)
-opening_cash  = float(shift["opening_cash"])
+# ── STEP A: Auto-calculated from existing data ────────────────────────────────
+ventas_pos      = get_pos_sales_total(shift_id)
+ventas_app      = get_app_sales_total(shift_id)
+gastos_efectivo = get_total_cash_expenses(shift_id)
+ventas_totales  = ventas_pos + ventas_app
 
-st.info(
-    f"Fondo inicial: **${opening_cash:,.2f}** · "
-    f"Gastos registrados en app: **${auto_expenses:,.2f}**"
-)
+st.markdown("**Ventas registradas (automático)**")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Ventas POS",       f"${ventas_pos:,.2f}")
+c2.metric("Ventas App",       f"${ventas_app:,.2f}")
+c3.metric("Gastos efectivo",  f"${gastos_efectivo:,.2f}")
+c4.metric("Ventas totales",   f"${ventas_totales:,.2f}")
 
-# ── POS totals form ───────────────────────────────────────────────────────────
-with st.form("close_shift_form"):
-    st.subheader("Totales del POS")
-    c1, c2, c3, c4 = st.columns(4)
-    total_sales = c1.number_input("Ventas totales ($)",      min_value=0.0, step=100.0, format="%.2f")
-    cash_sales  = c2.number_input("Ventas en efectivo ($)",  min_value=0.0, step=100.0, format="%.2f")
-    card_sales  = c3.number_input("Ventas con tarjeta ($)",  min_value=0.0, step=100.0, format="%.2f")
-    cxc_sales   = c4.number_input("Ventas CxC ($)",          min_value=0.0, step=100.0, format="%.2f")
+hr()
 
-    hr()
-    st.subheader("Arqueo de caja")
-    c5, c6 = st.columns(2)
-    actual_cash = c5.number_input(
-        "Efectivo físico contado ($)", min_value=0.0, step=100.0, format="%.2f"
+# ── STEP B: Manual inputs ─────────────────────────────────────────────────────
+st.markdown("**Datos del arqueo (manual)**")
+c1, c2, c3 = st.columns(3)
+with c1:
+    efectivo_contado = st.number_input(
+        "Efectivo en caja (sin descontar fondo)",
+        min_value=0.0, step=100.0, format="%.2f",
+        key="cs_efectivo_contado",
     )
-    cash_expenses = c6.number_input(
-        "Gastos en efectivo ($)",
-        min_value=0.0,
-        value=auto_expenses,
-        step=10.0,
-        format="%.2f",
-        help="Pre-llenado con los gastos registrados en la app. Ajusta si hubo gastos no registrados.",
+with c2:
+    ventas_tarjeta = st.number_input(
+        "Ventas tarjeta (según terminal)",
+        min_value=0.0, step=100.0, format="%.2f",
+        key="cs_ventas_tarjeta",
+    )
+with c3:
+    fondo_inicial = st.number_input(
+        "Fondo inicial",
+        min_value=0.0, value=float(shift["opening_cash"]),
+        step=100.0, format="%.2f",
+        key="cs_fondo_inicial",
     )
 
-    hr()
-    submitted = st.form_submit_button("🔴 Cerrar turno y calcular diferencia", type="primary")
+# ── STEP C: Auto-calculated arqueo ────────────────────────────────────────────
+efectivo_neto = efectivo_contado - fondo_inicial
+comprobacion  = efectivo_neto + ventas_tarjeta + ventas_app + gastos_efectivo
+diferencia    = ventas_totales - comprobacion
 
-if submitted:
-    # Soft warning if POS totals don't add up
-    if total_sales > 0 and abs((cash_sales + card_sales + cxc_sales) - total_sales) > 1:
-        st.warning(
-            f"⚠️ La suma Efectivo + Tarjeta + CxC "
-            f"(${cash_sales + card_sales + cxc_sales:,.2f}) no cuadra con "
-            f"Ventas totales (${total_sales:,.2f}). Verifica los montos."
-        )
+hr()
+st.markdown("**Resultado del arqueo**")
+c1, c2, c3 = st.columns(3)
+c1.metric("Efectivo neto", f"${efectivo_neto:,.2f}",
+          help="Efectivo contado menos fondo inicial")
+c2.metric("Comprobación",  f"${comprobacion:,.2f}",
+          help="Efectivo neto + tarjeta + app + gastos")
 
-    result = close_shift(
+if diferencia == 0:
+    c3.markdown(
+        '<div class="alert-ok">✅ Cuadrado perfecto</div>',
+        unsafe_allow_html=True,
+    )
+elif diferencia > 0:
+    c3.markdown(
+        f'<div class="alert-warn">🟡 Sobran ${diferencia:,.2f}</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    c3.markdown(
+        f'<div class="alert-err">🔴 Faltan ${abs(diferencia):,.2f}</div>',
+        unsafe_allow_html=True,
+    )
+
+# ── STEP D: Notes + submit ────────────────────────────────────────────────────
+hr()
+notas = st.text_area("Notas del turno (opcional)", key="cs_notas", height=80)
+
+if st.button("🔴 Cerrar Turno", type="primary"):
+    close_shift(
         shift_id=shift_id,
-        total_sales=total_sales,
-        cash_sales=cash_sales,
-        card_sales=card_sales,
-        cxc_sales=cxc_sales,
-        actual_cash_counted=actual_cash,
-        cash_expenses=cash_expenses,
-        opening_cash=opening_cash,
+        ventas_pos=ventas_pos,
+        ventas_app=ventas_app,
+        gastos_efectivo=gastos_efectivo,
+        efectivo_contado=efectivo_contado,
+        ventas_tarjeta=ventas_tarjeta,
+        fondo_inicial=fondo_inicial,
+        notas=notas.strip() or None,
     )
-    expected = result["expected_cash"]
-    disc     = result["discrepancy"]
-
     st.success("✅ Turno cerrado. Resumen exportado a CSV.")
-    hr()
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Efectivo esperado", f"${expected:,.2f}",
-                help="Fondo inicial + ventas en efectivo – gastos en efectivo")
-    col2.metric("Efectivo contado",  f"${actual_cash:,.2f}")
-
-    if abs(disc) < 1:
-        disc_html = f'<div class="alert-ok">✅ Sin diferencia (${disc:,.2f})</div>'
-    elif disc < 0:
-        disc_html = f'<div class="alert-err">🔴 Faltante: ${disc:,.2f}</div>'
-    else:
-        disc_html = f'<div class="alert-warn">🟡 Sobrante: +${disc:,.2f}</div>'
-
-    col3.markdown(disc_html, unsafe_allow_html=True)
-
     st.session_state.pop("ops_shift_id", None)
     st.info("Ve a **Revisión Verificador** para aprobar o marcar el turno.")
+    st.rerun()

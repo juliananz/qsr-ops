@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.config import PRODUCT_NAMES, PRODUCT_UNITS
+from core.product_mapping import POS_PRODUCTS
 from core.models import save_consumption, get_consumption_today
 from core.ui import inject_css, hr, require_active_shift, shift_header
 
@@ -25,47 +25,51 @@ TIPOS = ["Consumo empleado", "Consumo dueño", "Merma", "Otro"]
 # ── Registration form ─────────────────────────────────────────────────────────
 st.subheader("Registrar consumo")
 
-col1, col2 = st.columns(2)
-with col1:
-    tipo    = st.selectbox("Tipo", TIPOS, key="cons_tipo")
-    product = st.selectbox("Producto", PRODUCT_NAMES, key="cons_product")
+tipo = st.selectbox("Tipo", TIPOS, key="cons_tipo")
 
-with col2:
-    # Auto-fill unit when product changes
-    prev = st.session_state.get("_cons_prev_product")
-    if prev != product:
-        st.session_state["cons_unidad"] = PRODUCT_UNITS.get(product, "piezas")
-        st.session_state["_cons_prev_product"] = product
+selected_products = st.multiselect(
+    "Productos", POS_PRODUCTS, key="cons_products"
+)
 
-    unidad  = st.text_input("Unidad", key="cons_unidad")
-    cantidad = st.number_input(
-        "Cantidad", min_value=0.0, step=1.0, format="%.0f", key="cons_cantidad"
-    )
+product_quantities: dict[str, int] = {}
+if selected_products:
+    st.markdown("Cantidades:")
+    groups = [selected_products[i : i + 3] for i in range(0, len(selected_products), 3)]
+    for group in groups:
+        cols = st.columns(3)
+        for col, prod in zip(cols, group):
+            with col:
+                product_quantities[prod] = st.number_input(
+                    prod, min_value=1, value=1, step=1, key=f"cons_qty_{prod}"
+                )
 
 notas = st.text_area("Notas (opcional)", key="cons_notas", height=80)
 
 if st.button("💾 Guardar consumo", type="primary"):
     errors = []
-    if cantidad <= 0:
-        errors.append("La cantidad debe ser mayor a cero.")
+    if not selected_products:
+        errors.append("Selecciona al menos un producto.")
 
     if errors:
         for e in errors:
             st.error(e)
     else:
-        save_consumption(
-            shift_id=shift_id,
-            user=user,
-            tipo=tipo,
-            product=product,
-            cantidad=float(cantidad),
-            unidad=unidad,
-            notas=notas.strip() or None,
+        for prod in selected_products:
+            qty = product_quantities.get(prod, 1)
+            save_consumption(
+                shift_id=shift_id,
+                user=user,
+                tipo=tipo,
+                product=prod,
+                cantidad=float(qty),
+                unidad="piezas",
+                notas=notas.strip() or None,
+            )
+        names = ", ".join(
+            f"{product_quantities.get(p, 1)} × {p}" for p in selected_products
         )
-        st.success(
-            f"✅ {tipo}: {cantidad:.0f} {unidad} de **{product}** registrado."
-        )
-        for k in ["cons_cantidad", "cons_notas"]:
+        st.success(f"✅ {tipo}: {names} registrado.")
+        for k in ["cons_products", "cons_notas"] + [f"cons_qty_{p}" for p in selected_products]:
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -85,7 +89,6 @@ else:
             "Tipo":     r["tipo"],
             "Producto": r["product"],
             "Cantidad": int(r["cantidad"]),
-            "Unidad":   r["unidad"],
             "Notas":    r["notas"] or "",
             "Usuario":  r["user"],
         }

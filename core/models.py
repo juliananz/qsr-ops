@@ -195,6 +195,24 @@ def get_total_cash_expenses(shift_id: int) -> float:
         return float(row[0])
 
 
+def get_pos_sales_total(shift_id: int) -> float:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(importe),0) FROM pos_sales WHERE shift_id=?",
+            (shift_id,),
+        ).fetchone()
+        return float(row[0])
+
+
+def get_app_sales_total(shift_id: int) -> float:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(business_amount),0) FROM app_sales_log WHERE shift_id=?",
+            (shift_id,),
+        ).fetchone()
+        return float(row[0])
+
+
 # ============================================================
 # Receiving log
 # ============================================================
@@ -241,46 +259,55 @@ def get_receiving_log_today() -> list:
 
 def close_shift(
     shift_id: int,
-    total_sales: float,
-    cash_sales: float,
-    card_sales: float,
-    cxc_sales: float,
-    actual_cash_counted: float,
-    cash_expenses: float,
-    opening_cash: float,
+    ventas_pos: float,
+    ventas_app: float,
+    gastos_efectivo: float,
+    efectivo_contado: float,
+    ventas_tarjeta: float,
+    fondo_inicial: float,
+    notas: Optional[str],
 ) -> dict:
-    expected_cash = opening_cash + cash_sales - cash_expenses
-    discrepancy   = actual_cash_counted - expected_cash
+    ventas_totales = ventas_pos + ventas_app
+    efectivo_neto  = efectivo_contado - fondo_inicial
+    comprobacion   = efectivo_neto + ventas_tarjeta + ventas_app + gastos_efectivo
+    diferencia     = ventas_totales - comprobacion
 
     with get_conn() as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO shift_close
-                (shift_id, total_sales, cash_sales, card_sales, cxc_sales,
-                 actual_cash_counted, cash_expenses, expected_cash, discrepancy)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (shift_id, ventas_pos, ventas_app, gastos_efectivo, ventas_totales,
+                 efectivo_contado, ventas_tarjeta, fondo_inicial,
+                 efectivo_neto, comprobacion, diferencia, notas)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (shift_id, total_sales, cash_sales, card_sales, cxc_sales,
-             actual_cash_counted, cash_expenses, expected_cash, discrepancy),
+            (shift_id, ventas_pos, ventas_app, gastos_efectivo, ventas_totales,
+             efectivo_contado, ventas_tarjeta, fondo_inicial,
+             efectivo_neto, comprobacion, diferencia, notas),
         )
         conn.execute(
             "UPDATE shifts SET status='closed' WHERE id=?", (shift_id,)
         )
 
-    result = {"expected_cash": expected_cash, "discrepancy": discrepancy}
     shift = get_shift(shift_id)
     _export_shift_csv(shift, {
-        "total_sales":         total_sales,
-        "cash_sales":          cash_sales,
-        "card_sales":          card_sales,
-        "cxc_sales":           cxc_sales,
-        "opening_cash":        opening_cash,
-        "cash_expenses":       cash_expenses,
-        "expected_cash":       expected_cash,
-        "actual_cash_counted": actual_cash_counted,
-        "discrepancy":         discrepancy,
+        "ventas_pos":       ventas_pos,
+        "ventas_app":       ventas_app,
+        "gastos_efectivo":  gastos_efectivo,
+        "ventas_totales":   ventas_totales,
+        "efectivo_contado": efectivo_contado,
+        "ventas_tarjeta":   ventas_tarjeta,
+        "fondo_inicial":    fondo_inicial,
+        "efectivo_neto":    efectivo_neto,
+        "comprobacion":     comprobacion,
+        "diferencia":       diferencia,
     })
-    return result
+    return {
+        "ventas_totales": ventas_totales,
+        "efectivo_neto":  efectivo_neto,
+        "comprobacion":   comprobacion,
+        "diferencia":     diferencia,
+    }
 
 
 def get_shift_close(shift_id: int) -> Optional[sqlite3.Row]:
@@ -475,19 +502,20 @@ def _export_shift_csv(shift: sqlite3.Row, sc: dict) -> str:
 
     rows = [
         ["Campo", "Valor"],
-        ["Fecha",                    shift["shift_date"]],
-        ["Turno",                    shift["shift_name"]],
-        ["Abrió",                    shift["cashier_name"]],
-        ["Ventas totales",           sc["total_sales"]],
-        ["Ventas efectivo",          sc["cash_sales"]],
-        ["Ventas tarjeta",           sc["card_sales"]],
-        ["Ventas CxC",               sc["cxc_sales"]],
-        ["Fondo inicial",            sc["opening_cash"]],
-        ["Gastos en efectivo",       sc["cash_expenses"]],
-        ["Efectivo esperado",        sc["expected_cash"]],
-        ["Efectivo contado",         sc["actual_cash_counted"]],
-        ["Diferencia",               sc["discrepancy"]],
-        ["Generado el",              datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+        ["Fecha",             shift["shift_date"]],
+        ["Turno",             shift["shift_name"]],
+        ["Abrió",             shift["cashier_name"]],
+        ["Ventas POS",        sc["ventas_pos"]],
+        ["Ventas App",        sc["ventas_app"]],
+        ["Ventas totales",    sc["ventas_totales"]],
+        ["Gastos efectivo",   sc["gastos_efectivo"]],
+        ["Fondo inicial",     sc["fondo_inicial"]],
+        ["Efectivo contado",  sc["efectivo_contado"]],
+        ["Efectivo neto",     sc["efectivo_neto"]],
+        ["Ventas tarjeta",    sc["ventas_tarjeta"]],
+        ["Comprobación",      sc["comprobacion"]],
+        ["Diferencia",        sc["diferencia"]],
+        ["Generado el",       datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
     ]
 
     with open(filepath, "w", newline="", encoding="utf-8") as f:

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.config import PRODUCT_NAMES, PRODUCT_UNITS
+from core.product_mapping import POS_PRODUCTS
 from core.models import save_app_sale, get_app_sales_today, get_app_sale_items
 from core.ui import inject_css, hr, require_active_shift, shift_header
 
@@ -39,10 +39,10 @@ with col2:
 
 st.markdown("**Productos del pedido**")
 selected_products = st.multiselect(
-    "Selecciona productos", PRODUCT_NAMES, key="as_products"
+    "Selecciona productos", POS_PRODUCTS, key="as_products"
 )
 
-product_quantities: dict[str, float] = {}
+product_quantities: dict[str, int] = {}
 if selected_products:
     st.markdown("Cantidades:")
     groups = [selected_products[i : i + 3] for i in range(0, len(selected_products), 3)]
@@ -51,7 +51,7 @@ if selected_products:
         for col, prod in zip(cols, group):
             with col:
                 product_quantities[prod] = st.number_input(
-                    prod, min_value=1, step=1, key=f"as_qty_{prod}"
+                    prod, min_value=1, value=1, step=1, key=f"as_qty_{prod}"
                 )
 
 notes = st.text_area("Notas (opcional)", key="as_notes", height=80)
