@@ -1,5 +1,5 @@
 """
-Page 6 – Revisión del Verificador
+Page 8 – Revisión del Verificador
 Full shift summary. Action form available only for status='closed'.
 """
 import streamlit as st
@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.config import INVENTORY_ITEM_MAP
 from core.models import (
     get_shifts_pending_review,
     get_all_shifts,
@@ -15,7 +14,7 @@ from core.models import (
     get_shift_close,
     get_inventory_counts,
     get_expenses,
-    get_receiving,
+    get_receiving_log,
     get_verifier_review,
     save_verifier_review,
 )
@@ -53,7 +52,6 @@ with tab_all:
     chosen_all = st.selectbox("Selecciona turno", list(opts_all.keys()), key="all_sel")
     selected_all_id = opts_all[chosen_all]
 
-# Pending tab takes priority when there are pending shifts
 review_id = selected_pending_id if pending else selected_all_id
 
 if not review_id:
@@ -67,11 +65,7 @@ sc    = get_shift_close(review_id)
 rev   = get_verifier_review(review_id)
 
 st.subheader(f"Turno {shift['shift_date']} {shift['shift_name']} — {shift['cashier_name']}")
-st.caption(
-    f"Controlador: **{shift['delivery_controller']}** · "
-    f"Apertura: **${shift['opening_cash']:,.0f}** · "
-    f"Estado: **{shift['status']}**"
-)
+st.caption(f"Abrió: **{shift['cashier_name']}** · Estado: **{shift['status']}**")
 
 # ── Cash reconciliation ───────────────────────────────────────────────────────
 if sc:
@@ -102,33 +96,33 @@ if expenses:
     st.markdown(f"#### 💸 Gastos ({len(expenses)})")
     for e in expenses:
         icon = "📷" if e["photo_path"] else "⬜"
-        st.markdown(
-            f"{icon} **{e['category']}** — {e['description']} — **${e['amount']:,.2f}**"
-        )
+        st.markdown(f"{icon} **{e['category']}** — {e['description']} — **${e['amount']:,.2f}**")
 
 # ── Receiving summary ─────────────────────────────────────────────────────────
-receiving = get_receiving(review_id)
+receiving = get_receiving_log(review_id)
 if receiving:
     st.markdown(f"#### 🚚 Recepciones ({len(receiving)})")
     for r in receiving:
         st.markdown(
-            f"📷 **{r['supplier']}** — {r['item']} {r['quantity']} {r['unit']} — **${r['total_cost']:,.2f}**"
+            f"**{r['proveedor']}** — {r['producto']} "
+            f"{int(r['cantidad'])} {r['unidad']} — {r['user']}"
         )
 
 # ── Inventory counts ──────────────────────────────────────────────────────────
 inv_ap = get_inventory_counts(review_id, "apertura")
 inv_ci = get_inventory_counts(review_id, "cierre")
 if inv_ap or inv_ci:
-    with st.expander(f"📦 Inventarios (apertura: {len(inv_ap)}, cierre: {len(inv_ci)} artículos)"):
+    with st.expander(
+        f"📦 Inventarios (apertura: {len(inv_ap)}, cierre: {len(inv_ci)} artículos)"
+    ):
         col_a, col_c = st.columns(2)
 
         def _fmt_inv_row(row) -> str:
-            item_def = INVENTORY_ITEM_MAP.get(row["item_name"], {})
-            if item_def.get("input_type") == "checklist":
-                badge = "✅ OK" if row["quantity"] >= 1.0 else "❌ No OK"
-                return f"{row['item_name']}: {badge}"
-            elif row["quantity"] > 0:
-                return f"{row['item_name']}: {int(row['quantity'])} {row['unit']}"
+            if row["checked"] is not None:
+                badge = "✅ OK" if row["checked"] else "❌ No OK"
+                return f"{row['product']}: {badge}"
+            elif row["quantity"] is not None and row["quantity"] > 0:
+                return f"{row['product']}: {int(row['quantity'])} {row['unit'] or ''}"
             return ""
 
         with col_a:
@@ -150,13 +144,14 @@ hr()
 if rev:
     if rev["status"] == "aprobado":
         st.markdown(
-            f'<div class="alert-ok">✅ Aprobado por <b>{rev["verifier_name"]}</b> — {rev["reviewed_at"]}</div>',
+            f'<div class="alert-ok">✅ Aprobado por <b>{rev["verifier_name"]}</b>'
+            f' — {rev["reviewed_at"]}</div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            f'<div class="alert-err">🚩 Marcado por <b>{rev["verifier_name"]}</b> — '
-            f'{rev["reviewed_at"]}<br>Notas: {rev["notes"]}</div>',
+            f'<div class="alert-err">🚩 Marcado por <b>{rev["verifier_name"]}</b>'
+            f' — {rev["reviewed_at"]}<br>Notas: {rev["notes"]}</div>',
             unsafe_allow_html=True,
         )
     hr()
@@ -177,7 +172,7 @@ if shift["status"] == "closed":
         )
         notes = st.text_area(
             "Notas",
-            placeholder="Obligatorio si marcas el turno. Opcional si apruebas.",
+            placeholder="Obligatorio si marcas el turno.",
             height=100,
         )
         submitted = st.form_submit_button("💾 Guardar revisión", type="primary")
@@ -206,5 +201,4 @@ if shift["status"] == "closed":
 elif shift["status"] == "open":
     st.info("El turno debe estar cerrado antes de poder revisarlo.")
 else:
-    # approved or flagged — show read-only, no re-review form
     st.info(f"Este turno ya fue revisado (estado: **{shift['status']}**).")

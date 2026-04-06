@@ -9,20 +9,8 @@ from .models import get_shift, get_open_shifts
 
 # ─── CSS ────────────────────────────────────────────────────────────────────
 
-TABLET_CSS = """
+PC_CSS = """
 <style>
-/* ── Global ── */
-html, body, [class*="css"] { font-size: 17px; }
-
-/* ── Bigger buttons ── */
-div.stButton > button {
-    height: 3.2rem;
-    font-size: 1.1rem;
-    font-weight: 600;
-    border-radius: 8px;
-    width: 100%;
-}
-
 /* ── Primary buttons ── */
 div.stButton > button[kind="primary"] {
     background-color: #e05c1b;
@@ -34,23 +22,15 @@ div.stButton > button[kind="primary"]:hover {
     border-color: #c44e14;
 }
 
-/* ── Form inputs ── */
-input, textarea, select, [data-baseweb="select"] {
-    font-size: 1.05rem !important;
-    min-height: 2.6rem !important;
-}
-
-/* ── Number inputs ─ bigger touch target ── */
-input[type="number"] { font-size: 1.15rem !important; }
-
-/* ── Sidebar nav links ── */
-[data-testid="stSidebarNavLink"] { font-size: 1.05rem; padding: 0.55rem 1rem; }
-
 /* ── Section divider ── */
 hr.section-hr { border-top: 2px solid #e05c1b; margin: 1.2rem 0; }
 
 /* ── Metric tiles ── */
-[data-testid="metric-container"] { background: #f9f9f9; border-radius:8px; padding:0.6rem; }
+[data-testid="metric-container"] {
+    background: #f9f9f9;
+    border-radius: 8px;
+    padding: 0.6rem;
+}
 
 /* ── Alert boxes ── */
 .alert-ok  { background:#d4edda; border-left:5px solid #28a745; padding:0.8rem; border-radius:4px; }
@@ -61,7 +41,7 @@ hr.section-hr { border-top: 2px solid #e05c1b; margin: 1.2rem 0; }
 
 
 def inject_css() -> None:
-    st.markdown(TABLET_CSS, unsafe_allow_html=True)
+    st.markdown(PC_CSS, unsafe_allow_html=True)
 
 
 def hr() -> None:
@@ -87,10 +67,9 @@ def shift_selector_sidebar() -> None:
             return
 
         options = {
-            f"{r['shift_date']} {r['shift_name']} – {r['cashier_name']}": r["id"]
+            f"{r['shift_date']} {r['shift_name']} — {r['cashier_name']}": r["id"]
             for r in open_shifts
         }
-        # Keep previously selected if still valid
         current = st.session_state.get("ops_shift_id")
         ids = list(options.values())
         default_idx = ids.index(current) if current in ids else 0
@@ -105,9 +84,7 @@ def shift_selector_sidebar() -> None:
 
 
 def require_active_shift() -> int:
-    """
-    Returns the active shift_id from session state, or stops the page with a warning.
-    """
+    """Return the active shift_id from session state, or stop with a warning."""
     shift_id = st.session_state.get("ops_shift_id")
     if not shift_id:
         st.warning("⚠️ Selecciona o abre un turno desde la barra lateral.")
@@ -116,11 +93,10 @@ def require_active_shift() -> int:
 
 
 def shift_header(shift_id: int) -> None:
-    """Small banner showing current shift info at top of page."""
+    """Small caption showing current shift info at top of page."""
     shift = get_shift(shift_id)
     if shift:
         st.caption(
             f"Turno: **{shift['shift_date']} {shift['shift_name']}**  •  "
-            f"Cajero: **{shift['cashier_name']}**  •  "
-            f"Verificador: **{shift['delivery_controller']}**"
+            f"Abrió: **{shift['cashier_name']}**"
         )

@@ -1,16 +1,17 @@
 """
 Page 2 – Inventario
-- quantity items → integer number_input
-- checklist items → checkbox (OK / Not OK)
-Supports apertura and cierre counts.
+Sections A–H. Apertura / Cierre modes.
+Once submitted a count is immutable (read-only view shown instead of form).
 """
 import streamlit as st
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.config import INVENTORY_ITEMS
-from core.models import save_inventory_counts, get_inventory_counts
+from collections import defaultdict
+
+from core.config import INVENTORY_SECTIONS
+from core.models import save_inventory_counts, has_inventory_counts, get_inventory_counts
 from core.ui import inject_css, hr, require_active_shift, shift_header
 
 inject_css()
@@ -20,100 +21,108 @@ shift_id = require_active_shift()
 shift_header(shift_id)
 hr()
 
-# ── Count type selector ──────────────────────────────────────────────────────
-count_type = st.radio(
+user = st.session_state.get("current_display", "")
+
+mode = st.radio(
     "Tipo de conteo",
     ["apertura", "cierre"],
     format_func=lambda x: "🌅 Apertura" if x == "apertura" else "🌇 Cierre",
     horizontal=True,
 )
 
-# ── Pre-fill existing counts if they exist ───────────────────────────────────
-existing = get_inventory_counts(shift_id, count_type)
-existing_map = {r["item_name"]: r["quantity"] for r in existing}
-
-if existing:
-    st.info(
-        f"Ya existe un conteo de **{count_type}** para este turno. "
-        f"Puedes corregirlo y guardar de nuevo."
-    )
-
 hr()
 
-# ── Group items by section ────────────────────────────────────────────────────
-sections: dict[str, list] = {}
-for item in INVENTORY_ITEMS:
-    sections.setdefault(item["section"], []).append(item)
+# ── Already submitted → read-only ────────────────────────────────────────────
+if has_inventory_counts(shift_id, mode):
+    st.success(f"✅ Conteo de **{mode}** ya registrado — solo lectura.")
 
+    existing = get_inventory_counts(shift_id, mode)
+    by_category: dict = defaultdict(list)
+    for row in existing:
+        by_category[row["category"]].append(row)
+
+    for section_name in INVENTORY_SECTIONS:
+        rows = by_category.get(section_name, [])
+        if not rows:
+            continue
+        st.subheader(section_name)
+        if section_name == "Checklist":
+            cols = st.columns(4)
+            for i, row in enumerate(rows):
+                icon = "✅" if row["checked"] else "❌"
+                cols[i % 4].markdown(f"{icon} {row['product']}")
+        else:
+            pairs = [rows[i : i + 2] for i in range(0, len(rows), 2)]
+            for pair in pairs:
+                c = st.columns(2)
+                for col, row in zip(c, pair):
+                    col.metric(row["product"], f"{int(row['quantity'])} {row['unit'] or ''}")
+        hr()
+    st.stop()
+
+# ── Entry form ────────────────────────────────────────────────────────────────
 counts: list[dict] = []
 
-with st.form("inventory_form"):
-    for section, items in sections.items():
-        st.subheader(section)
+with st.form(f"inventory_form_{mode}"):
+    for idx, (section_name, items) in enumerate(INVENTORY_SECTIONS.items()):
+        letter = "ABCDEFGH"[idx]
+        st.subheader(f"{letter}. {section_name}")
 
-        # Separate quantity and checklist items within each section
-        qty_items  = [i for i in items if i["input_type"] == "quantity"]
-        chk_items  = [i for i in items if i["input_type"] == "checklist"]
-
-        # ── Quantity items: 2 per row ───────────────────────────────────────
-        if qty_items:
-            pairs = [qty_items[i : i + 2] for i in range(0, len(qty_items), 2)]
-            for pair in pairs:
-                cols = st.columns(2)
-                for col, item in zip(cols, pair):
-                    with col:
-                        default_val = int(existing_map.get(item["name"], 0))
-                        qty = st.number_input(
-                            f"{item['name']}  ({item['unit']})",
-                            min_value=0,
-                            value=default_val,
-                            step=1,
-                            key=f"inv_{count_type}_{item['name']}",
-                        )
-                        counts.append(
-                            {
-                                "item_name": item["name"],
-                                "quantity": float(qty),
-                                "unit": item["unit"],
-                            }
-                        )
-
-        # ── Checklist items: 3 per row ──────────────────────────────────────
-        if chk_items:
-            if qty_items:
-                st.markdown("**Consumibles**")
-            triples = [chk_items[i : i + 3] for i in range(0, len(chk_items), 3)]
+        if section_name == "Checklist":
+            triples = [items[i : i + 3] for i in range(0, len(items), 3)]
             for triple in triples:
                 cols = st.columns(3)
                 for col, item in zip(cols, triple):
                     with col:
-                        default_checked = existing_map.get(item["name"], 0.0) >= 1.0
                         checked = st.checkbox(
                             item["name"],
-                            value=default_checked,
-                            key=f"inv_{count_type}_{item['name']}",
+                            key=f"inv_{mode}_{item['name']}",
                         )
-                        counts.append(
-                            {
-                                "item_name": item["name"],
-                                "quantity": 1.0 if checked else 0.0,
-                                "unit": "",
-                            }
+                        counts.append({
+                            "product":  item["name"],
+                            "category": section_name,
+                            "quantity": None,
+                            "unit":     None,
+                            "checked":  1 if checked else 0,
+                        })
+        else:
+            visible = [
+                i for i in items
+                if not (i.get("cierre_only") and mode == "apertura")
+            ]
+            pairs = [visible[i : i + 2] for i in range(0, len(visible), 2)]
+            for pair in pairs:
+                cols = st.columns(2)
+                for col, item in zip(cols, pair):
+                    with col:
+                        qty = st.number_input(
+                            f"{item['name']}  ({item['unit']})",
+                            min_value=0,
+                            step=1,
+                            key=f"inv_{mode}_{item['name']}",
                         )
+                        counts.append({
+                            "product":  item["name"],
+                            "category": section_name,
+                            "quantity": float(qty),
+                            "unit":     item["unit"],
+                            "checked":  None,
+                        })
 
         hr()
 
     submitted = st.form_submit_button(
-        f"💾 Guardar conteo de {count_type}", type="primary"
+        f"💾 Guardar conteo de {mode}", type="primary"
     )
 
 if submitted:
-    save_inventory_counts(shift_id, count_type, counts)
-    qty_saved = sum(1 for c in counts if c["unit"] != "" and c["quantity"] > 0)
-    chk_ok    = sum(1 for c in counts if c["unit"] == "" and c["quantity"] >= 1)
-    chk_total = sum(1 for c in counts if c["unit"] == "")
+    save_inventory_counts(shift_id, user, mode, counts)
+    qty_items = [c for c in counts if c["checked"] is None]
+    chk_items = [c for c in counts if c["checked"] is not None]
+    chk_ok    = sum(1 for c in chk_items if c["checked"])
     st.success(
-        f"✅ Conteo de **{count_type}** guardado — "
-        f"{qty_saved} artículos contados, "
-        f"{chk_ok}/{chk_total} consumibles OK."
+        f"✅ Conteo de **{mode}** guardado — "
+        f"{len(qty_items)} artículos, "
+        f"{chk_ok}/{len(chk_items)} checklist OK."
     )
+    st.rerun()

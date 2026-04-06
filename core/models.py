@@ -1,12 +1,12 @@
 """
 ops_app/core/models.py
-Thin data-access layer — all SQL in one place, no ORM needed at this scale.
+Thin data-access layer — all SQL in one place.
 """
 import csv
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from .config import EXPORTS_DIR, UPLOADS_DIR
 from .database import get_conn
@@ -36,6 +36,31 @@ def open_shift(
             (shift_date.isoformat(), shift_name, opening_cash, cashier_name, delivery_controller),
         )
         return cur.lastrowid
+
+
+def get_open_shift_today() -> Optional[sqlite3.Row]:
+    """Return the open shift for today, or None."""
+    today = date.today().isoformat()
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM shifts WHERE shift_date=? AND status='open' LIMIT 1",
+            (today,),
+        ).fetchone()
+
+
+def get_available_shift_name(shift_date: date) -> Optional[str]:
+    """Return first available slot ('AM' or 'PM') for the date, or None if both taken."""
+    with get_conn() as conn:
+        taken = {
+            row[0] for row in conn.execute(
+                "SELECT shift_name FROM shifts WHERE shift_date=?",
+                (shift_date.isoformat(),),
+            )
+        }
+    for name in ("AM", "PM"):
+        if name not in taken:
+            return name
+    return None
 
 
 def any_shift_open() -> bool:
@@ -86,41 +111,43 @@ def get_shifts_pending_review() -> list:
 # Inventory counts
 # ============================================================
 
-def save_inventory_counts(shift_id: int, count_type: str, counts: list[dict]) -> None:
+def save_inventory_counts(
+    shift_id: int,
+    user: str,
+    mode: str,
+    counts: list[dict],
+) -> None:
     """
-    counts: [{"item_name": str, "quantity": float, "unit": str}, ...]
-    For checklist items: quantity=1.0 means OK, 0.0 means Not OK.
-    Replaces existing counts of the same type for this shift.
+    counts: [{"product": str, "category": str,
+              "quantity": float|None, "unit": str|None, "checked": int|None}]
+    Records are immutable once saved — do not call if counts already exist.
     """
     with get_conn() as conn:
-        conn.execute(
-            "DELETE FROM inventory_counts WHERE shift_id=? AND count_type=?",
-            (shift_id, count_type),
-        )
         conn.executemany(
             """
-            INSERT INTO inventory_counts (shift_id, count_type, item_name, quantity, unit)
-            VALUES (:shift_id, :count_type, :item_name, :quantity, :unit)
+            INSERT INTO inventory_counts
+                (shift_id, user, mode, product, category, quantity, unit, checked)
+            VALUES (:shift_id, :user, :mode, :product, :category, :quantity, :unit, :checked)
             """,
-            [{"shift_id": shift_id, "count_type": count_type, **c} for c in counts],
+            [{"shift_id": shift_id, "user": user, "mode": mode, **c} for c in counts],
         )
 
 
-def has_inventory_counts(shift_id: int, count_type: str) -> bool:
-    """True if at least one inventory_counts row exists for this shift + count_type."""
+def has_inventory_counts(shift_id: int, mode: str) -> bool:
+    """True if at least one inventory_counts row exists for this shift + mode."""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) FROM inventory_counts WHERE shift_id=? AND count_type=?",
-            (shift_id, count_type),
+            "SELECT COUNT(*) FROM inventory_counts WHERE shift_id=? AND mode=?",
+            (shift_id, mode),
         ).fetchone()
         return row[0] > 0
 
 
-def get_inventory_counts(shift_id: int, count_type: str) -> list:
+def get_inventory_counts(shift_id: int, mode: str) -> list:
     with get_conn() as conn:
         return conn.execute(
-            "SELECT * FROM inventory_counts WHERE shift_id=? AND count_type=? ORDER BY id",
-            (shift_id, count_type),
+            "SELECT * FROM inventory_counts WHERE shift_id=? AND mode=? ORDER BY id",
+            (shift_id, mode),
         ).fetchall()
 
 
@@ -160,7 +187,6 @@ def get_expenses(shift_id: int) -> list:
 
 
 def get_total_cash_expenses(shift_id: int) -> float:
-    """Sum of expenses — used as default for cash_expenses in close shift."""
     with get_conn() as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE shift_id=?",
@@ -170,36 +196,42 @@ def get_total_cash_expenses(shift_id: int) -> float:
 
 
 # ============================================================
-# Receiving
+# Receiving log
 # ============================================================
 
-def save_receiving(
+def save_receiving_log(
     shift_id: int,
-    supplier: str,
-    item: str,
-    quantity: float,
-    unit: str,
-    total_cost: float,
-    photo_bytes: bytes,
-    photo_filename: str,
+    user: str,
+    proveedor: str,
+    producto: str,
+    unidad: str,
+    cantidad: float,
 ) -> int:
-    photo_path = _save_photo(shift_id, "recepciones", photo_filename, photo_bytes)
     with get_conn() as conn:
         cur = conn.execute(
             """
-            INSERT INTO receiving (shift_id, supplier, item, quantity, unit, total_cost, photo_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO receiving_log (shift_id, user, proveedor, producto, unidad, cantidad)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (shift_id, supplier, item, quantity, unit, total_cost, photo_path),
+            (shift_id, user, proveedor, producto, unidad, cantidad),
         )
         return cur.lastrowid
 
 
-def get_receiving(shift_id: int) -> list:
+def get_receiving_log(shift_id: int) -> list:
     with get_conn() as conn:
         return conn.execute(
-            "SELECT * FROM receiving WHERE shift_id=? ORDER BY recorded_at",
+            "SELECT * FROM receiving_log WHERE shift_id=? ORDER BY recorded_at",
             (shift_id,),
+        ).fetchall()
+
+
+def get_receiving_log_today() -> list:
+    today = date.today().isoformat()
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM receiving_log WHERE DATE(recorded_at)=? ORDER BY recorded_at",
+            (today,),
         ).fetchall()
 
 
@@ -235,12 +267,7 @@ def close_shift(
             "UPDATE shifts SET status='closed' WHERE id=?", (shift_id,)
         )
 
-    result = {
-        "expected_cash": expected_cash,
-        "discrepancy":   discrepancy,
-    }
-
-    # Auto-export CSV on every close
+    result = {"expected_cash": expected_cash, "discrepancy": discrepancy}
     shift = get_shift(shift_id)
     _export_shift_csv(shift, {
         "total_sales":         total_sales,
@@ -253,7 +280,6 @@ def close_shift(
         "actual_cash_counted": actual_cash_counted,
         "discrepancy":         discrepancy,
     })
-
     return result
 
 
@@ -282,8 +308,10 @@ def save_verifier_review(
             """,
             (shift_id, verifier_name, status, notes),
         )
+        # Fix A: map Spanish status values to DB-level shift statuses
+        shift_status = "approved" if status == "aprobado" else "flagged"
         conn.execute(
-            "UPDATE shifts SET status=? WHERE id=?", (status, shift_id)
+            "UPDATE shifts SET status=? WHERE id=?", (shift_status, shift_id)
         )
 
 
@@ -295,30 +323,151 @@ def get_verifier_review(shift_id: int) -> Optional[sqlite3.Row]:
 
 
 # ============================================================
+# App sales
+# ============================================================
+
+def save_app_sale(
+    shift_id: int,
+    user: str,
+    app: str,
+    payment_type: str,
+    app_amount: float,
+    business_amount: float,
+    notes: Optional[str],
+    items: list[dict],
+) -> int:
+    """items: [{"product": str, "quantity": float}, ...]"""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO app_sales_log
+                (shift_id, user, app, payment_type, app_amount, business_amount, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (shift_id, user, app, payment_type, app_amount, business_amount, notes),
+        )
+        sale_id = cur.lastrowid
+        for item in items:
+            conn.execute(
+                "INSERT INTO app_sales_items (sale_id, product, quantity) VALUES (?, ?, ?)",
+                (sale_id, item["product"], item["quantity"]),
+            )
+        return sale_id
+
+
+def get_app_sales_today() -> list:
+    today = date.today().isoformat()
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM app_sales_log WHERE DATE(recorded_at)=? ORDER BY recorded_at",
+            (today,),
+        ).fetchall()
+
+
+def get_app_sale_items(sale_id: int) -> list:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM app_sales_items WHERE sale_id=?", (sale_id,)
+        ).fetchall()
+
+
+# ============================================================
+# Consumption log
+# ============================================================
+
+def save_consumption(
+    shift_id: int,
+    user: str,
+    tipo: str,
+    product: str,
+    cantidad: float,
+    unidad: str,
+    notas: Optional[str],
+) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO consumption_log
+                (shift_id, user, tipo, product, cantidad, unidad, notas)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (shift_id, user, tipo, product, cantidad, unidad, notas),
+        )
+        return cur.lastrowid
+
+
+def get_consumption_today() -> list:
+    today = date.today().isoformat()
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM consumption_log WHERE DATE(recorded_at)=? ORDER BY recorded_at",
+            (today,),
+        ).fetchall()
+
+
+def get_consumption_log(shift_id: int) -> list:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM consumption_log WHERE shift_id=? ORDER BY recorded_at",
+            (shift_id,),
+        ).fetchall()
+
+
+# ============================================================
+# POS sales
+# ============================================================
+
+def save_pos_sales(shift_id: int, records: list[dict]) -> None:
+    """Bulk-insert POS rows.  Each dict must have the pos_sales columns."""
+    from datetime import datetime as _dt
+    uploaded_at = _dt.now().isoformat()
+    with get_conn() as conn:
+        conn.executemany(
+            """
+            INSERT INTO pos_sales
+                (shift_id, foliocomanda, foliocuenta, orden,
+                 fechaapertura, fechacierre, mesero, claveproducto,
+                 descripcion, cantidad, descuento, importe, uploaded_at)
+            VALUES
+                (:shift_id, :foliocomanda, :foliocuenta, :orden,
+                 :fechaapertura, :fechacierre, :mesero, :claveproducto,
+                 :descripcion, :cantidad, :descuento, :importe, :uploaded_at)
+            """,
+            [{"shift_id": shift_id, "uploaded_at": uploaded_at, **r} for r in records],
+        )
+
+
+def has_pos_sales(shift_id: int) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM pos_sales WHERE shift_id=?", (shift_id,)
+        ).fetchone()
+        return row[0] > 0
+
+
+def get_pos_sales(shift_id: int) -> list:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM pos_sales WHERE shift_id=? ORDER BY id",
+            (shift_id,),
+        ).fetchall()
+
+
+# ============================================================
 # Internal helpers
 # ============================================================
 
 def _save_photo(shift_id: int, category: str, filename: str, data: bytes) -> str:
-    """
-    Saves photo and returns the relative path string stored in DB.
-    Structure: uploads/{shift_id}/{category}/{timestamp}_{filename}
-    """
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = Path(filename).name  # strip any directory traversal
+    safe_name = Path(filename).name
     folder = UPLOADS_DIR / str(shift_id) / category
     folder.mkdir(parents=True, exist_ok=True)
     dest = folder / f"{ts}_{safe_name}"
     dest.write_bytes(data)
-    # Store relative path from ops_app root
     return str(dest.relative_to(UPLOADS_DIR.parent))
 
 
 def _export_shift_csv(shift: sqlite3.Row, sc: dict) -> str:
-    """
-    Write a flat summary CSV to ops_app/exports/.
-    Filename: YYYYMMDD_<AM|PM>_summary.csv
-    Returns the full path of the written file.
-    """
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
     date_str = str(shift["shift_date"]).replace("-", "")
     filename = f"{date_str}_{shift['shift_name']}_summary.csv"
@@ -328,8 +477,7 @@ def _export_shift_csv(shift: sqlite3.Row, sc: dict) -> str:
         ["Campo", "Valor"],
         ["Fecha",                    shift["shift_date"]],
         ["Turno",                    shift["shift_name"]],
-        ["Cajero",                   shift["cashier_name"]],
-        ["Controlador de delivery",  shift["delivery_controller"]],
+        ["Abrió",                    shift["cashier_name"]],
         ["Ventas totales",           sc["total_sales"]],
         ["Ventas efectivo",          sc["cash_sales"]],
         ["Ventas tarjeta",           sc["card_sales"]],
@@ -343,7 +491,6 @@ def _export_shift_csv(shift: sqlite3.Row, sc: dict) -> str:
     ]
 
     with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerows(rows)
+        csv.writer(f).writerows(rows)
 
     return str(filepath)
