@@ -294,27 +294,55 @@ c4.metric("Ventas totales",   f"${ventas_totales:,.2f}")
 hr()
 
 # ── STEP B: Manual inputs ─────────────────────────────────────────────────────
-st.markdown("**Datos del arqueo (manual)**")
+st.markdown("**Conteo de denominaciones**")
+
+BILLS  = [1000, 500, 200, 100, 50, 20]
+COINS  = [10, 5, 2, 1, 0.50]
+
+bill_cols = st.columns(len(BILLS))
+coin_cols = st.columns(len(COINS))
+
+bill_counts: dict[float, int] = {}
+coin_counts: dict[float, int] = {}
+
+for col, denom in zip(bill_cols, BILLS):
+    with col:
+        st.markdown(f"**${denom:,.0f}**")
+        bill_counts[denom] = st.number_input(
+            "piezas", min_value=0, step=1, key=f"denom_{denom}", label_visibility="collapsed"
+        )
+
+for col, denom in zip(coin_cols, COINS):
+    with col:
+        label = f"**${denom:,.2f}**" if denom < 1 else f"**${denom:,.0f}**"
+        st.markdown(label)
+        coin_counts[denom] = st.number_input(
+            "piezas", min_value=0, step=1, key=f"denom_{denom}", label_visibility="collapsed"
+        )
+
+efectivo_contado = sum(d * q for d, q in bill_counts.items()) + sum(d * q for d, q in coin_counts.items())
+
+st.markdown(f"**Total contado: ${efectivo_contado:,.2f}**")
+
+hr()
+
+st.markdown("**Otros datos del arqueo (manual)**")
 c1, c2, c3 = st.columns(3)
 with c1:
-    efectivo_contado = st.number_input(
-        "Efectivo en caja (sin descontar fondo)",
-        min_value=0.0, step=100.0, format="%.2f",
-        key="cs_efectivo_contado",
-    )
-with c2:
     ventas_tarjeta = st.number_input(
         "Ventas tarjeta (según terminal)",
         min_value=0.0, step=100.0, format="%.2f",
         key="cs_ventas_tarjeta",
     )
-with c3:
+with c2:
     fondo_inicial = st.number_input(
         "Fondo inicial",
         min_value=0.0, value=float(shift["opening_cash"]),
         step=100.0, format="%.2f",
         key="cs_fondo_inicial",
     )
+with c3:
+    st.metric("Efectivo en caja", f"${efectivo_contado:,.2f}")
 
 # ── STEP C: Auto-calculated arqueo ────────────────────────────────────────────
 efectivo_neto = efectivo_contado - fondo_inicial
