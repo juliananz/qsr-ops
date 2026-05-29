@@ -61,14 +61,15 @@ CREATE INDEX IF NOT EXISTS ix_expenses_shift ON expenses (shift_id);
 -- receiving_log  (replaces old receiving; no cost/photo)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS receiving_log (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    shift_id    INTEGER NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
-    user        TEXT    NOT NULL,
-    proveedor   TEXT    NOT NULL,
-    producto    TEXT    NOT NULL,
-    unidad      TEXT    NOT NULL,
-    cantidad    REAL    NOT NULL CHECK (cantidad > 0),
-    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    shift_id        INTEGER NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
+    user            TEXT    NOT NULL,
+    proveedor       TEXT    NOT NULL,
+    producto        TEXT    NOT NULL,
+    unidad          TEXT    NOT NULL,
+    cantidad        REAL    NOT NULL CHECK (cantidad > 0),
+    costo_unitario  REAL    NOT NULL DEFAULT 0,
+    recorded_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS ix_receiving_log_shift ON receiving_log (shift_id);

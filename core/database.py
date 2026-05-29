@@ -89,3 +89,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 closed_at         DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         """)
+
+    # ── Migration 4: add drive_photo_url to expenses if missing ──────────────
+    exp_cols = {row[1] for row in conn.execute("PRAGMA table_info(expenses)")}
+    if exp_cols and "drive_photo_url" not in exp_cols:
+        conn.execute("ALTER TABLE expenses ADD COLUMN drive_photo_url TEXT")
+        conn.commit()
+
+    # ── Migration 5: add costo_unitario to receiving_log if missing ───────────
+    rl_cols = {row[1] for row in conn.execute("PRAGMA table_info(receiving_log)")}
+    if rl_cols and "costo_unitario" not in rl_cols:
+        conn.execute(
+            "ALTER TABLE receiving_log ADD COLUMN costo_unitario REAL NOT NULL DEFAULT 0"
+        )
+        conn.commit()

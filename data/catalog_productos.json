@@ -1,0 +1,21 @@
+[
+  {"nombre": "Res",            "unidad_compra": "paquetes", "costo_unitario": 900.00,   "proveedor": ""},
+  {"nombre": "Papa",           "unidad_compra": "bultos",   "costo_unitario": 1400.00,  "proveedor": ""},
+  {"nombre": "Papa tamal",     "unidad_compra": "kg",       "costo_unitario": 30.00,    "proveedor": ""},
+  {"nombre": "Pan hamb",       "unidad_compra": "bolsa",    "costo_unitario": 40.67,    "proveedor": ""},
+  {"nombre": "Pollo",          "unidad_compra": "pieza",    "costo_unitario": 13.39,    "proveedor": ""},
+  {"nombre": "Pierna",         "unidad_compra": "pza",      "costo_unitario": 35.71,    "proveedor": ""},
+  {"nombre": "Ternera",        "unidad_compra": "pza",      "costo_unitario": 35.71,    "proveedor": ""},
+  {"nombre": "Tornillos",      "unidad_compra": "pza",      "costo_unitario": 357.14,   "proveedor": ""},
+  {"nombre": "Caja chiles",    "unidad_compra": "caja",     "costo_unitario": 616.07,   "proveedor": ""},
+  {"nombre": "Aceite",         "unidad_compra": "pieza",    "costo_unitario": 526.79,   "proveedor": ""},
+  {"nombre": "Hotdog",         "unidad_compra": "bolsa",    "costo_unitario": 34.82,    "proveedor": ""},
+  {"nombre": "Caja Queso hamb","unidad_compra": "caja",     "costo_unitario": 1259.82,  "proveedor": ""},
+  {"nombre": "Barra Queso",    "unidad_compra": "barra",    "costo_unitario": 133.93,   "proveedor": ""},
+  {"nombre": "Bolsa #4",       "unidad_compra": "bolsa",    "costo_unitario": 1948.21,  "proveedor": ""},
+  {"nombre": "Bolsa $6",       "unidad_compra": "bolsa",    "costo_unitario": 2533.93,  "proveedor": ""},
+  {"nombre": "Catsup",         "unidad_compra": "pieza",    "costo_unitario": 112.05,   "proveedor": ""},
+  {"nombre": "Papel encerado", "unidad_compra": "rollo",    "costo_unitario": 959.82,   "proveedor": ""},
+  {"nombre": "Mantequilla",    "unidad_compra": "pieza",    "costo_unitario": 110.71,   "proveedor": ""},
+  {"nombre": "Crema",          "unidad_compra": "pieza",    "costo_unitario": 17.86,    "proveedor": ""}
+]

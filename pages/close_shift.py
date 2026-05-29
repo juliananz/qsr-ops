@@ -12,6 +12,7 @@ import pandas as pd
 from core.models import (
     get_shift,
     get_shift_close,
+    get_shift_by_date_name,
     get_total_cash_expenses,
     get_pos_sales_total,
     get_app_sales_total,
@@ -24,6 +25,7 @@ from core.models import (
     save_pos_sales,
 )
 from core.database import get_conn
+from core.analytics_export import push_csvs_to_github, upload_photos_to_drive
 from core.product_mapping import (
     calculate_theoretical_consumption,
     INVENTORY_NAME_TO_KEY,
@@ -40,18 +42,35 @@ shift_header(shift_id)
 hr()
 
 shift = get_shift(shift_id)
+turno_num  = 1 if shift["shift_name"] == "AM" else 2
+turno_label = f"Turno {turno_num} ({'Mediodía' if turno_num == 1 else 'Cierre del día'})"
+
+# For Turno 2 (PM), load Turno 1 (AM) close data for combined day totals
+t1_close = None
+if turno_num == 2:
+    am_shift = get_shift_by_date_name(str(shift["shift_date"]), "AM")
+    if am_shift:
+        t1_close = get_shift_close(am_shift["id"])
 
 # ── Already closed: show summary only ────────────────────────────────────────
 if shift["status"] == "closed":
     sc = get_shift_close(shift_id)
-    st.success("✅ Este turno ya fue cerrado.")
+    st.success(f"✅ Este turno ya fue cerrado — **{turno_label}**.")
     if sc:
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Ventas totales",  f"${sc['ventas_totales']:,.2f}")
+        col1.metric("Ventas totales",   f"${sc['ventas_totales']:,.2f}")
         col2.metric("Efectivo contado", f"${sc['efectivo_contado']:,.2f}")
-        col3.metric("Comprobación",    f"${sc['comprobacion']:,.2f}")
-        disc = sc["diferencia"]
-        col4.metric("Diferencia",      f"${disc:,.2f}")
+        col3.metric("Comprobación",     f"${sc['comprobacion']:,.2f}")
+        col4.metric("Diferencia",       f"${sc['diferencia']:,.2f}")
+
+    if turno_num == 2 and t1_close and sc:
+        hr()
+        st.markdown("**Totales del día (Turno 1 + Turno 2)**")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Ventas del día",       f"${sc['ventas_totales'] + t1_close['ventas_totales']:,.2f}")
+        d2.metric("Efectivo neto del día", f"${sc['efectivo_neto']  + t1_close['efectivo_neto']:,.2f}")
+        d3.metric("Tarjeta del día",       f"${sc['ventas_tarjeta'] + t1_close['ventas_tarjeta']:,.2f}")
+        d4.metric("Gastos del día",        f"${sc['gastos_efectivo']+ t1_close['gastos_efectivo']:,.2f}")
     st.stop()
 
 # ── Compute inventory gate flags early (needed for theoretical section too) ──
@@ -263,7 +282,7 @@ hr()
 # =============================================================================
 # SECTION 3 — Arqueo de caja (requires both inventory counts)
 # =============================================================================
-st.subheader("💰 Arqueo de Caja")
+st.subheader(f"💰 Arqueo de Caja — {turno_label}")
 
 if not has_apertura or not has_cierre:
     missing = []
@@ -373,6 +392,16 @@ else:
         unsafe_allow_html=True,
     )
 
+# ── Turno 2: preview combined day totals ─────────────────────────────────────
+if turno_num == 2 and t1_close:
+    hr()
+    st.markdown("**Totales del día (Turno 1 + Turno 2 — vista previa)**")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Ventas del día",        f"${ventas_totales + t1_close['ventas_totales']:,.2f}")
+    d2.metric("Efectivo neto del día", f"${efectivo_neto  + t1_close['efectivo_neto']:,.2f}")
+    d3.metric("Tarjeta del día",       f"${ventas_tarjeta + t1_close['ventas_tarjeta']:,.2f}")
+    d4.metric("Gastos del día",        f"${gastos_efectivo+ t1_close['gastos_efectivo']:,.2f}")
+
 # ── STEP D: Notes + submit ────────────────────────────────────────────────────
 hr()
 notas = st.text_area("Notas del turno (opcional)", key="cs_notas", height=80)
@@ -388,6 +417,44 @@ if st.button("🔴 Cerrar Turno", type="primary"):
         fondo_inicial=fondo_inicial,
         notas=notas.strip() or None,
     )
+
+    # ── Analytics + Drive sync — failure never blocks the shift close ────────
+    try:
+        _token  = st.secrets.get("ANALYTICS_GITHUB_TOKEN", "")
+        _creds  = st.secrets.get("GOOGLE_CREDENTIALS_JSON", "")
+        _folder = st.secrets.get("DRIVE_GASTOS_FOLDER_ID", "")
+
+        if not _token and not _creds:
+            st.info("ℹ Sincronización no configurada — datos guardados localmente")
+        else:
+            _errors:   list[str] = []
+            _ok_parts: list[str] = []
+
+            with get_conn() as _conn:
+                if _token:
+                    _gh = push_csvs_to_github(shift_id, _conn, _token)
+                    if _gh["errors"]:
+                        _errors.extend(_gh["errors"])
+                    else:
+                        _ok_parts.append("qsr-analytics")
+
+                if _creds and _folder:
+                    _dr = upload_photos_to_drive(shift_id, _conn, _creds, _folder)
+                    if _dr["errors"]:
+                        _errors.extend(_dr["errors"])
+                    if _dr["uploaded"] > 0:
+                        _ok_parts.append(f"Drive ({_dr['uploaded']} foto(s))")
+
+            if _errors and not _ok_parts:
+                st.error(f"❌ Error al sincronizar: {_errors[0]}")
+            elif _errors:
+                st.warning(f"⚠ Enviado parcialmente: {_errors}")
+            elif _ok_parts:
+                st.success(f"✅ Sincronizado con {' y '.join(_ok_parts)}")
+    except Exception as _exc:
+        st.error(f"❌ Error al sincronizar: {_exc}")
+    # ── End sync ───────────────────────────────────────────────────────────────
+
     st.success("✅ Turno cerrado. Resumen exportado a CSV.")
     st.session_state.pop("ops_shift_id", None)
     st.info("Ve a **Revisión Verificador** para aprobar o marcar el turno.")

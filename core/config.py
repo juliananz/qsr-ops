@@ -40,14 +40,12 @@ INVENTORY_SECTIONS: dict[str, list[dict]] = {
         {"name": "Ternera",   "unit": "piezas", "input_type": "quantity"},
         {"name": "Salchicha", "unit": "piezas", "input_type": "quantity"},
     ],
-    "Papa": [
-        {"name": "Costales que entran hoy",      "unit": "costales",  "input_type": "quantity"},
-        {"name": "Botes de papa lista al final", "unit": "botes 100L","input_type": "quantity", "cierre_only": True},
+    "Papas": [
+        {"name": "Papa", "unit": "bultos", "input_type": "quantity"},
     ],
     "Pan": [
-        {"name": "Pan Hamburguesa", "unit": "piezas", "input_type": "quantity"},
-        {"name": "Pan Hot Dog",     "unit": "piezas", "input_type": "quantity"},
-        {"name": "Pan Torta",       "unit": "piezas", "input_type": "quantity"},
+        {"name": "Pan Hamburguesa", "unit": "charolas", "input_type": "quantity"},
+        {"name": "Pan Hot Dog",     "unit": "paquetes", "input_type": "quantity"},
     ],
     "Aderezos": [
         {"name": "Catsup",     "unit": "piezas", "input_type": "quantity"},
@@ -56,20 +54,10 @@ INVENTORY_SECTIONS: dict[str, list[dict]] = {
         {"name": "Pepinillos", "unit": "piezas", "input_type": "quantity"},
         {"name": "Chiles",     "unit": "piezas", "input_type": "quantity"},
     ],
-    "Lácteos": [
-        {"name": "Queso hamburguesa", "unit": "cajas",  "input_type": "quantity"},
-        {"name": "Queso Astropapa",   "unit": "piezas", "input_type": "quantity"},
-        {"name": "Crema",             "unit": "piezas", "input_type": "quantity"},
-        {"name": "Mantequilla",       "unit": "piezas", "input_type": "quantity"},
-    ],
     "Verduras": [
         {"name": "Tomate",   "unit": "cajas",  "input_type": "quantity"},
         {"name": "Lechuga",  "unit": "cajas",  "input_type": "quantity"},
         {"name": "Aguacate", "unit": "mallas", "input_type": "quantity"},
-    ],
-    "Postres": [
-        {"name": "Brownies",  "unit": "piezas", "input_type": "quantity"},
-        {"name": "Tortugas",  "unit": "piezas", "input_type": "quantity"},
     ],
     "Checklist": [
         {"name": "Sal",            "input_type": "checklist"},
@@ -102,31 +90,21 @@ PRODUCTS: list[tuple[str, str]] = [
     ("Pierna",    "piezas"),
     ("Ternera",   "piezas"),
     ("Salchicha", "piezas"),
-    # Papa
-    ("Costales de papa",    "costales"),
-    ("Botes de papa lista", "botes 100L"),
+    # Papas
+    ("Papa", "bultos"),
     # Pan
-    ("Pan Hamburguesa", "piezas"),
-    ("Pan Hot Dog",     "piezas"),
-    ("Pan Torta",       "piezas"),
+    ("Pan Hamburguesa", "charolas"),
+    ("Pan Hot Dog",     "paquetes"),
     # Aderezos
     ("Catsup",     "piezas"),
     ("Mayonesa",   "piezas"),
     ("Mostaza",    "piezas"),
     ("Pepinillos", "piezas"),
     ("Chiles",     "piezas"),
-    # Lácteos
-    ("Queso hamburguesa", "cajas"),
-    ("Queso Astropapa",   "piezas"),
-    ("Crema",             "piezas"),
-    ("Mantequilla",       "piezas"),
     # Verduras
     ("Tomate",   "cajas"),
     ("Lechuga",  "cajas"),
     ("Aguacate", "mallas"),
-    # Postres
-    ("Brownies",  "piezas"),
-    ("Tortugas",  "piezas"),
 ]
 
 PRODUCT_UNITS: dict[str, str] = {name: unit for name, unit in PRODUCTS}

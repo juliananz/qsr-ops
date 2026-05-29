@@ -1,7 +1,9 @@
 """
 Page 2 – Inventario
-Sections A–H. Apertura / Cierre modes.
-Once submitted a count is immutable (read-only view shown instead of form).
+Sections A–F. Apertura / Cierre modes.
+- Only one apertura and one cierre per calendar day (enforced).
+- Once submitted a count is immutable (read-only view shown instead of form).
+- Checklist section includes a free-text comentarios field.
 """
 import streamlit as st
 import sys
@@ -11,7 +13,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from collections import defaultdict
 
 from core.config import INVENTORY_SECTIONS
-from core.models import save_inventory_counts, has_inventory_counts, get_inventory_counts
+from core.models import (
+    save_inventory_counts,
+    has_inventory_counts,
+    has_inventory_today_any_shift,
+    get_inventory_counts,
+    get_shift,
+)
 from core.ui import inject_css, hr, require_active_shift, shift_header
 
 inject_css()
@@ -21,6 +29,8 @@ shift_id = require_active_shift()
 shift_header(shift_id)
 hr()
 
+shift = get_shift(shift_id)
+shift_date = str(shift["shift_date"])
 user = st.session_state.get("current_display", "")
 
 mode = st.radio(
@@ -32,7 +42,7 @@ mode = st.radio(
 
 hr()
 
-# ── Already submitted → read-only ────────────────────────────────────────────
+# ── Already submitted for THIS shift → read-only ──────────────────────────────
 if has_inventory_counts(shift_id, mode):
     st.success(f"✅ Conteo de **{mode}** ya registrado — solo lectura.")
 
@@ -47,10 +57,16 @@ if has_inventory_counts(shift_id, mode):
             continue
         st.subheader(section_name)
         if section_name == "Checklist":
+            normal_rows = [r for r in rows if r["product"] != "_comentarios_"]
+            comentarios_row = next(
+                (r for r in rows if r["product"] == "_comentarios_"), None
+            )
             cols = st.columns(4)
-            for i, row in enumerate(rows):
+            for i, row in enumerate(normal_rows):
                 icon = "✅" if row["checked"] else "❌"
                 cols[i % 4].markdown(f"{icon} {row['product']}")
+            if comentarios_row and comentarios_row["unit"]:
+                st.info(f"💬 **Comentarios:** {comentarios_row['unit']}")
         else:
             pairs = [rows[i : i + 2] for i in range(0, len(rows), 2)]
             for pair in pairs:
@@ -58,6 +74,14 @@ if has_inventory_counts(shift_id, mode):
                 for col, row in zip(c, pair):
                     col.metric(row["product"], f"{int(row['quantity'])} {row['unit'] or ''}")
         hr()
+    st.stop()
+
+# ── Enforce: only one apertura/cierre per calendar day ────────────────────────
+if has_inventory_today_any_shift(shift_date, mode):
+    st.warning(
+        f"⚠️ El conteo de **{mode}** ya fue registrado hoy en otro turno. "
+        f"Solo se permite un conteo de {mode} por día."
+    )
     st.stop()
 
 # ── Entry form ────────────────────────────────────────────────────────────────
@@ -85,6 +109,20 @@ with st.form(f"inventory_form_{mode}"):
                             "unit":     None,
                             "checked":  1 if checked else 0,
                         })
+            # Free-text comentarios for the checklist
+            comentarios_text = st.text_area(
+                "Comentarios",
+                key=f"inv_{mode}_comentarios",
+                height=80,
+                placeholder="Observaciones adicionales del turno...",
+            )
+            counts.append({
+                "product":  "_comentarios_",
+                "category": section_name,
+                "quantity": None,
+                "unit":     comentarios_text.strip() if comentarios_text else "",
+                "checked":  None,
+            })
         else:
             visible = [
                 i for i in items
@@ -117,7 +155,7 @@ with st.form(f"inventory_form_{mode}"):
 
 if submitted:
     save_inventory_counts(shift_id, user, mode, counts)
-    qty_items = [c for c in counts if c["checked"] is None]
+    qty_items = [c for c in counts if c["checked"] is None and c["product"] != "_comentarios_"]
     chk_items = [c for c in counts if c["checked"] is not None]
     chk_ok    = sum(1 for c in chk_items if c["checked"])
     st.success(

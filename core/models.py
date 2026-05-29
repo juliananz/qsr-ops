@@ -3,6 +3,7 @@ ops_app/core/models.py
 Thin data-access layer — all SQL in one place.
 """
 import csv
+import json
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -10,6 +11,44 @@ from typing import Optional, List
 
 from .config import EXPORTS_DIR, UPLOADS_DIR
 from .database import get_conn
+
+# ============================================================
+# Product catalog (JSON file — fixed costs, updatable)
+# ============================================================
+
+CATALOG_PATH = Path(__file__).parent.parent / "data" / "catalog_productos.json"
+
+
+def load_catalog() -> list[dict]:
+    if not CATALOG_PATH.exists():
+        return []
+    with open(CATALOG_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def get_catalog_cost(producto: str) -> Optional[float]:
+    for item in load_catalog():
+        if item["nombre"] == producto:
+            return float(item["costo_unitario"])
+    return None
+
+
+def get_catalog_unit(producto: str) -> Optional[str]:
+    for item in load_catalog():
+        if item["nombre"] == producto:
+            return item["unidad_compra"]
+    return None
+
+
+def update_catalog_cost(producto: str, nuevo_costo: float) -> None:
+    cat = load_catalog()
+    for item in cat:
+        if item["nombre"] == producto:
+            item["costo_unitario"] = round(nuevo_costo, 2)
+            break
+    CATALOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CATALOG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cat, f, ensure_ascii=False, indent=2)
 
 
 # ============================================================
@@ -79,6 +118,14 @@ def get_shift(shift_id: int) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+def get_shift_by_date_name(shift_date: str, shift_name: str) -> Optional[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM shifts WHERE shift_date=? AND shift_name=?",
+            (shift_date, shift_name),
+        ).fetchone()
+
+
 def get_open_shifts() -> list:
     """Return all shifts with status='open', newest first."""
     with get_conn() as conn:
@@ -139,6 +186,20 @@ def has_inventory_counts(shift_id: int, mode: str) -> bool:
         row = conn.execute(
             "SELECT COUNT(*) FROM inventory_counts WHERE shift_id=? AND mode=?",
             (shift_id, mode),
+        ).fetchone()
+        return row[0] > 0
+
+
+def has_inventory_today_any_shift(shift_date: str, mode: str) -> bool:
+    """True if ANY shift on this date already has an inventory count for mode."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) FROM inventory_counts ic
+            JOIN shifts s ON ic.shift_id = s.id
+            WHERE s.shift_date = ? AND ic.mode = ?
+            """,
+            (shift_date, mode),
         ).fetchone()
         return row[0] > 0
 
@@ -224,14 +285,16 @@ def save_receiving_log(
     producto: str,
     unidad: str,
     cantidad: float,
+    costo_unitario: float = 0.0,
 ) -> int:
     with get_conn() as conn:
         cur = conn.execute(
             """
-            INSERT INTO receiving_log (shift_id, user, proveedor, producto, unidad, cantidad)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO receiving_log
+                (shift_id, user, proveedor, producto, unidad, cantidad, costo_unitario)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (shift_id, user, proveedor, producto, unidad, cantidad),
+            (shift_id, user, proveedor, producto, unidad, cantidad, costo_unitario),
         )
         return cur.lastrowid
 
