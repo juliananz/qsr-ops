@@ -7,3 +7,5 @@ uploads/*
 !uploads/.gitkeep
 exports/*
 !exports/.gitkeep
+.streamlit/secrets.toml
+Pedidos_Inv_Coss_-_AB.xlsx 
