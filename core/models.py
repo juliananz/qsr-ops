@@ -276,6 +276,15 @@ def get_app_sales_total(shift_id: int) -> float:
         return float(row[0])
 
 
+def get_app_sales_breakdown(shift_id: int) -> dict[str, float]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT app, SUM(business_amount) FROM app_sales_log WHERE shift_id=? GROUP BY app",
+            (shift_id,),
+        ).fetchall()
+        return {row[0]: float(row[1]) for row in rows}
+
+
 # ============================================================
 # Receiving log
 # ============================================================

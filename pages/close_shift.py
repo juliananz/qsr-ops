@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import tempfile
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 
 from core.models import (
@@ -16,6 +20,7 @@ from core.models import (
     get_total_cash_expenses,
     get_pos_sales_total,
     get_app_sales_total,
+    get_app_sales_breakdown,
     has_inventory_counts,
     get_inventory_counts,
     get_receiving_log,
@@ -24,6 +29,7 @@ from core.models import (
     get_pos_sales,
     save_pos_sales,
 )
+from core.config import BUSINESS_TZ, USERS
 from core.database import get_conn
 from core.analytics_export import push_csvs_to_github, upload_photos_to_drive
 from core.product_mapping import (
@@ -33,6 +39,7 @@ from core.product_mapping import (
     TRACKED_INGREDIENTS,
 )
 from core.ui import inject_css, hr, require_active_shift, shift_header
+from notify.report import ShiftReport, report_image, money
 
 inject_css()
 st.title("🔴 Cerrar Turno")
@@ -51,6 +58,72 @@ if turno_num == 2:
     am_shift = get_shift_by_date_name(str(shift["shift_date"]), "AM")
     if am_shift:
         t1_close = get_shift_close(am_shift["id"])
+
+# ── Report image helpers ────────────────────────────────────────────────────
+def _build_report(
+    turno_label: str,
+    shift_id: int,
+    ventas_pos: float,
+    ventas_tarjeta: float,
+    ventas_app: float,
+    ventas_totales: float,
+    fondo_inicial: float,
+    efectivo_contado: float,
+    efectivo_neto: float,
+    diferencia: float,
+    gastos_efectivo: float,
+    t1_close=None,
+) -> ShiftReport:
+    now = datetime.now(ZoneInfo(BUSINESS_TZ))
+    user_key = st.session_state.get("current_user", "")
+    display = USERS.get(user_key, user_key)
+
+    r = ShiftReport(
+        title=f"Astro Burger — Corte {turno_label}",
+        subtitle=f"{now:%A %d %b %Y} · {display}",
+    )
+
+    ventas_efectivo = ventas_pos - ventas_tarjeta
+    r.add("Ventas", "Efectivo", money(ventas_efectivo))
+    r.add("Ventas", "Tarjeta", money(ventas_tarjeta))
+    for app_name, amt in get_app_sales_breakdown(shift_id).items():
+        r.add("Ventas", app_name, money(amt))
+    r.add("Ventas", "Total ventas", money(ventas_totales), emphasis=True)
+
+    esperado = fondo_inicial + ventas_efectivo - gastos_efectivo
+    r.add("Caja", "Fondo inicial", money(fondo_inicial))
+    r.add("Caja", "Esperado en caja", money(esperado))
+    r.add("Caja", "Contado", money(efectivo_contado))
+    r.add("Caja", "Diferencia", money(diferencia), emphasis=True)
+
+    r.add("Gastos", "Total gastos", money(gastos_efectivo), emphasis=True)
+
+    if t1_close:
+        day_ventas = ventas_totales + t1_close["ventas_totales"]
+        r.add("Totales del día", "Ventas T1", money(t1_close["ventas_totales"]))
+        r.add("Totales del día", "Ventas T2", money(ventas_totales))
+        r.add("Totales del día", "Ventas del día", money(day_ventas), emphasis=True)
+        r.add("Totales del día", "Efectivo neto día", money(efectivo_neto + t1_close["efectivo_neto"]))
+        r.add("Totales del día", "Tarjeta día", money(ventas_tarjeta + t1_close["ventas_tarjeta"]))
+        r.add("Totales del día", "Gastos día", money(gastos_efectivo + t1_close["gastos_efectivo"]))
+
+    return r
+
+
+def _show_report_image(report: ShiftReport, shift_date: str, turno_num: int):
+    suffix = f"T{turno_num}"
+    file_name = f"corte_{shift_date}_{suffix}.png"
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    report_image(report, tmp.name)
+    img_bytes = open(tmp.name, "rb").read()
+    st.image(img_bytes, caption=report.title)
+    st.download_button(
+        label="📥 Descargar imagen del corte",
+        data=img_bytes,
+        file_name=file_name,
+        mime="image/png",
+    )
+
 
 # ── Already closed: show summary only ────────────────────────────────────────
 if shift["status"] == "closed":
@@ -71,6 +144,25 @@ if shift["status"] == "closed":
         d2.metric("Efectivo neto del día", f"${sc['efectivo_neto']  + t1_close['efectivo_neto']:,.2f}")
         d3.metric("Tarjeta del día",       f"${sc['ventas_tarjeta'] + t1_close['ventas_tarjeta']:,.2f}")
         d4.metric("Gastos del día",        f"${sc['gastos_efectivo']+ t1_close['gastos_efectivo']:,.2f}")
+
+    if sc:
+        hr()
+        rpt = _build_report(
+            turno_label=turno_label,
+            shift_id=shift_id,
+            ventas_pos=sc["ventas_pos"],
+            ventas_tarjeta=sc["ventas_tarjeta"],
+            ventas_app=sc["ventas_app"],
+            ventas_totales=sc["ventas_totales"],
+            fondo_inicial=sc["fondo_inicial"],
+            efectivo_contado=sc["efectivo_contado"],
+            efectivo_neto=sc["efectivo_neto"],
+            diferencia=sc["diferencia"],
+            gastos_efectivo=sc["gastos_efectivo"],
+            t1_close=t1_close if turno_num == 2 else None,
+        )
+        _show_report_image(rpt, str(shift["shift_date"]), turno_num)
+
     st.stop()
 
 has_apertura = has_inventory_counts(shift_id, "apertura")
@@ -442,6 +534,22 @@ if st.button("🔴 Cerrar Turno", type="primary"):
     # ── End sync ───────────────────────────────────────────────────────────────
 
     st.success("✅ Turno cerrado. Resumen exportado a CSV.")
-    st.session_state.pop("ops_shift_id", None)
     st.info("Ve a **Revisión Verificador** para aprobar o marcar el turno.")
-    st.rerun()
+
+    hr()
+    rpt = _build_report(
+        turno_label=turno_label,
+        shift_id=shift_id,
+        ventas_pos=ventas_pos,
+        ventas_tarjeta=ventas_tarjeta,
+        ventas_app=ventas_app,
+        ventas_totales=ventas_totales,
+        fondo_inicial=fondo_inicial,
+        efectivo_contado=efectivo_contado,
+        efectivo_neto=efectivo_neto,
+        diferencia=diferencia,
+        gastos_efectivo=gastos_efectivo,
+        t1_close=t1_close if turno_num == 2 else None,
+    )
+    _show_report_image(rpt, str(shift["shift_date"]), turno_num)
+    st.stop()
