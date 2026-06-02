@@ -3,3 +3,4 @@ pandas
 Pillow
 google-api-python-client
 google-auth
+streamlit-cookies-controller

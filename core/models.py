@@ -9,7 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional, List
 
-from .config import EXPORTS_DIR, UPLOADS_DIR
+from .config import EXPORTS_DIR, UPLOADS_DIR, now_local, today_local
 from .database import get_conn
 
 # ============================================================
@@ -69,17 +69,18 @@ def open_shift(
         cur = conn.execute(
             """
             INSERT INTO shifts
-                (shift_date, shift_name, opening_cash, cashier_name, delivery_controller)
-            VALUES (?, ?, ?, ?, ?)
+                (shift_date, shift_name, opening_cash, cashier_name, delivery_controller, opened_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (shift_date.isoformat(), shift_name, opening_cash, cashier_name, delivery_controller),
+            (shift_date.isoformat(), shift_name, opening_cash, cashier_name, delivery_controller,
+             now_local()),
         )
         return cur.lastrowid
 
 
 def get_open_shift_today() -> Optional[sqlite3.Row]:
     """Return the open shift for today, or None."""
-    today = date.today().isoformat()
+    today = today_local().isoformat()
     with get_conn() as conn:
         return conn.execute(
             "SELECT * FROM shifts WHERE shift_date=? AND status='open' LIMIT 1",
@@ -170,13 +171,14 @@ def save_inventory_counts(
     Records are immutable once saved — do not call if counts already exist.
     """
     with get_conn() as conn:
+        ts = now_local()
         conn.executemany(
             """
             INSERT INTO inventory_counts
-                (shift_id, user, mode, product, category, quantity, unit, checked)
-            VALUES (:shift_id, :user, :mode, :product, :category, :quantity, :unit, :checked)
+                (shift_id, user, mode, product, category, quantity, unit, checked, recorded_at)
+            VALUES (:shift_id, :user, :mode, :product, :category, :quantity, :unit, :checked, :recorded_at)
             """,
-            [{"shift_id": shift_id, "user": user, "mode": mode, **c} for c in counts],
+            [{"shift_id": shift_id, "user": user, "mode": mode, "recorded_at": ts, **c} for c in counts],
         )
 
 
@@ -231,10 +233,10 @@ def save_expense(
     with get_conn() as conn:
         cur = conn.execute(
             """
-            INSERT INTO expenses (shift_id, category, description, amount, photo_path)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO expenses (shift_id, category, description, amount, photo_path, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (shift_id, category, description, amount, photo_path),
+            (shift_id, category, description, amount, photo_path, now_local()),
         )
         return cur.lastrowid
 
@@ -291,10 +293,10 @@ def save_receiving_log(
         cur = conn.execute(
             """
             INSERT INTO receiving_log
-                (shift_id, user, proveedor, producto, unidad, cantidad, costo_unitario)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (shift_id, user, proveedor, producto, unidad, cantidad, costo_unitario, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (shift_id, user, proveedor, producto, unidad, cantidad, costo_unitario),
+            (shift_id, user, proveedor, producto, unidad, cantidad, costo_unitario, now_local()),
         )
         return cur.lastrowid
 
@@ -308,7 +310,7 @@ def get_receiving_log(shift_id: int) -> list:
 
 
 def get_receiving_log_today() -> list:
-    today = date.today().isoformat()
+    today = today_local().isoformat()
     with get_conn() as conn:
         return conn.execute(
             "SELECT * FROM receiving_log WHERE DATE(recorded_at)=? ORDER BY recorded_at",
@@ -341,12 +343,12 @@ def close_shift(
             INSERT OR REPLACE INTO shift_close
                 (shift_id, ventas_pos, ventas_app, gastos_efectivo, ventas_totales,
                  efectivo_contado, ventas_tarjeta, fondo_inicial,
-                 efectivo_neto, comprobacion, diferencia, notas)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 efectivo_neto, comprobacion, diferencia, notas, closed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (shift_id, ventas_pos, ventas_app, gastos_efectivo, ventas_totales,
              efectivo_contado, ventas_tarjeta, fondo_inicial,
-             efectivo_neto, comprobacion, diferencia, notas),
+             efectivo_neto, comprobacion, diferencia, notas, now_local()),
         )
         conn.execute(
             "UPDATE shifts SET status='closed' WHERE id=?", (shift_id,)
@@ -393,10 +395,10 @@ def save_verifier_review(
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT OR REPLACE INTO verifier_review (shift_id, verifier_name, status, notes)
-            VALUES (?, ?, ?, ?)
+            INSERT OR REPLACE INTO verifier_review (shift_id, verifier_name, status, notes, reviewed_at)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (shift_id, verifier_name, status, notes),
+            (shift_id, verifier_name, status, notes, now_local()),
         )
         # Fix A: map Spanish status values to DB-level shift statuses
         shift_status = "approved" if status == "aprobado" else "flagged"
@@ -431,10 +433,10 @@ def save_app_sale(
         cur = conn.execute(
             """
             INSERT INTO app_sales_log
-                (shift_id, user, app, payment_type, app_amount, business_amount, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (shift_id, user, app, payment_type, app_amount, business_amount, notes, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (shift_id, user, app, payment_type, app_amount, business_amount, notes),
+            (shift_id, user, app, payment_type, app_amount, business_amount, notes, now_local()),
         )
         sale_id = cur.lastrowid
         for item in items:
@@ -446,7 +448,7 @@ def save_app_sale(
 
 
 def get_app_sales_today() -> list:
-    today = date.today().isoformat()
+    today = today_local().isoformat()
     with get_conn() as conn:
         return conn.execute(
             "SELECT * FROM app_sales_log WHERE DATE(recorded_at)=? ORDER BY recorded_at",
@@ -478,16 +480,16 @@ def save_consumption(
         cur = conn.execute(
             """
             INSERT INTO consumption_log
-                (shift_id, user, tipo, product, cantidad, unidad, notas)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (shift_id, user, tipo, product, cantidad, unidad, notas, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (shift_id, user, tipo, product, cantidad, unidad, notas),
+            (shift_id, user, tipo, product, cantidad, unidad, notas, now_local()),
         )
         return cur.lastrowid
 
 
 def get_consumption_today() -> list:
-    today = date.today().isoformat()
+    today = today_local().isoformat()
     with get_conn() as conn:
         return conn.execute(
             "SELECT * FROM consumption_log WHERE DATE(recorded_at)=? ORDER BY recorded_at",
@@ -509,8 +511,7 @@ def get_consumption_log(shift_id: int) -> list:
 
 def save_pos_sales(shift_id: int, records: list[dict]) -> None:
     """Bulk-insert POS rows.  Each dict must have the pos_sales columns."""
-    from datetime import datetime as _dt
-    uploaded_at = _dt.now().isoformat()
+    uploaded_at = now_local()
     with get_conn() as conn:
         conn.executemany(
             """
@@ -548,7 +549,7 @@ def get_pos_sales(shift_id: int) -> list:
 # ============================================================
 
 def _save_photo(shift_id: int, category: str, filename: str, data: bytes) -> str:
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = now_local().replace("-", "").replace(" ", "_").replace(":", "")
     safe_name = Path(filename).name
     folder = UPLOADS_DIR / str(shift_id) / category
     folder.mkdir(parents=True, exist_ok=True)
@@ -578,7 +579,7 @@ def _export_shift_csv(shift: sqlite3.Row, sc: dict) -> str:
         ["Ventas tarjeta",    sc["ventas_tarjeta"]],
         ["Comprobación",      sc["comprobacion"]],
         ["Diferencia",        sc["diferencia"]],
-        ["Generado el",       datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+        ["Generado el",       now_local()],
     ]
 
     with open(filepath, "w", newline="", encoding="utf-8") as f:

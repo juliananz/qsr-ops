@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.config import OPENING_CASH
+from core.config import OPENING_CASH, today_local
 from core.models import open_shift, get_open_shift_today, get_available_shift_name
 from core.ui import inject_css, hr
 
@@ -18,7 +18,7 @@ st.title("🟢 Abrir Turno")
 
 display = st.session_state.get("current_display", "")
 
-today = date.today()
+today = today_local()
 
 # ── Block if a shift is already open today ────────────────────────────────────
 existing = get_open_shift_today()

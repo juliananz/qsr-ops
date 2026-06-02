@@ -2,7 +2,25 @@
 ops_app/core/config.py
 Static reference data.
 """
+from datetime import datetime, date as _date
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+# ---------------------------------------------------------------------------
+# Business timezone (Saltillo / America/Mexico_City = UTC-6)
+# ---------------------------------------------------------------------------
+BUSINESS_TZ = "America/Mexico_City"
+
+
+def now_local() -> str:
+    """Current business-timezone datetime as a SQLite-compatible string."""
+    return datetime.now(ZoneInfo(BUSINESS_TZ)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def today_local() -> _date:
+    """Current date in the business timezone."""
+    return datetime.now(ZoneInfo(BUSINESS_TZ)).date()
+
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -18,13 +36,17 @@ EXPORTS_DIR = OPS_ROOT / "exports"
 OPENING_CASH = 2000.0
 
 # ---------------------------------------------------------------------------
-# Hardcoded users
+# Session timeout
 # ---------------------------------------------------------------------------
-USERS = {
-    "paulina":     {"pin": "0000", "display": "Paulina"},
-    "miguel":      {"pin": "0000", "display": "Miguel"},
-    "josejulian":  {"pin": "0000", "display": "José Julián"},
-    "jorgejulian": {"pin": "0000", "display": "Jorge Julián"},
+SESSION_TIMEOUT_MIN = 60  # sliding inactivity timeout in minutes
+
+# ---------------------------------------------------------------------------
+# Users — display names only; PINs are hashed in .streamlit/secrets.toml
+# ---------------------------------------------------------------------------
+USERS: dict[str, str] = {
+    "paulina":     "Paulina",
+    "miguel":      "Miguel",
+    "julian":      "Julián",
 }
 
 # ---------------------------------------------------------------------------

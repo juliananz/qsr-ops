@@ -6,11 +6,18 @@ from __future__ import annotations
 
 import os
 import textwrap
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+from zoneinfo import ZoneInfo
+
 from PIL import Image, ImageDraw, ImageFont
+from core.config import BUSINESS_TZ
 
 # ---------------------------------------------------------------------------
 # Fuentes. DejaVu viene en casi cualquier Linux; si no está, Pillow usa default.
@@ -118,7 +125,7 @@ def report_text(r: ShiftReport, width: int = 38) -> str:
         out.append(sep)
         out.append(r.footer)
 
-    out.append(f"_Generado {datetime.now():%d/%m %H:%M}_")
+    out.append(f"_Generado {datetime.now(ZoneInfo(BUSINESS_TZ)):%d/%m %H:%M}_")
     return "\n".join(out)
 
 
@@ -209,7 +216,7 @@ def report_image(r: ShiftReport, path: str, width_px: int = 720) -> str:
             d.text((pad, y), w, font=f_foot, fill=_MUTED)
             y += line_h(f_foot)
 
-    d.text((pad, y), f"Generado {datetime.now():%d/%m/%Y %H:%M}",
+    d.text((pad, y), f"Generado {datetime.now(ZoneInfo(BUSINESS_TZ)):%d/%m/%Y %H:%M}",
            font=f_foot, fill=_MUTED)
 
     img.save(path, "PNG", optimize=True)

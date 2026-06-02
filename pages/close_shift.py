@@ -73,7 +73,6 @@ if shift["status"] == "closed":
         d4.metric("Gastos del día",        f"${sc['gastos_efectivo']+ t1_close['gastos_efectivo']:,.2f}")
     st.stop()
 
-# ── Compute inventory gate flags early (needed for theoretical section too) ──
 has_apertura = has_inventory_counts(shift_id, "apertura")
 has_cierre   = has_inventory_counts(shift_id, "cierre")
 
@@ -283,19 +282,6 @@ hr()
 # SECTION 3 — Arqueo de caja (requires both inventory counts)
 # =============================================================================
 st.subheader(f"💰 Arqueo de Caja — {turno_label}")
-
-if not has_apertura or not has_cierre:
-    missing = []
-    if not has_apertura:
-        missing.append("**inventario de apertura**")
-    if not has_cierre:
-        missing.append("**inventario de cierre**")
-    st.error(
-        f"🚫 No se puede cerrar el turno. "
-        f"Faltan: {' y '.join(missing)}.\n\n"
-        f"Ve a la página de **Inventario** y registra los conteos antes de cerrar."
-    )
-    st.stop()
 
 # ── STEP A: Auto-calculated from existing data ────────────────────────────────
 ventas_pos      = get_pos_sales_total(shift_id)
